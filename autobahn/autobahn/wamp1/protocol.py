@@ -2109,27 +2109,39 @@ class CallHandler(Handler):
       """
       Perform the RPC call and attach callbacks to its deferred object.
       """
-      call = self._onBeforeCall()
+      def callback(call):
+          d = maybeDeferred(self._callProcedure, call)
+          ## register callback and errback with extra argument call
+          d.addCallbacks(
+              self._onAfterCallSuccess,
+              self._onAfterCallError,
+              callbackArgs = (call,),
+              errbackArgs = (call,),
+          )
 
-      ## execute incoming RPC
-      d = maybeDeferred(self._callProcedure, call)
-
-      ## register callback and errback with extra argument call
-      d.addCallbacks(self._onAfterCallSuccess,
-                     self._onAfterCallError,
-                     callbackArgs = (call,),
-                     errbackArgs = (call,))
+      self._onBeforeCall().addCallback(callback)
 
 
    def _onBeforeCall(self):
       """
       Create call object to move around call data
       """
-      uri, args = self.proto.onBeforeCall(self.callid, self.uri, self.args, bool(self.proto.procForUri(self.uri)))
+      callid = self.callid
+      d = maybeDeferred(
+          self.proto.onBeforeCall,
+          callid,
+          self.uri,
+          self.args,
+          bool(self.proto.procForUri(self.uri)),
+      )
 
-      call = Call(self.proto, self.callid, uri, args)
-      call.track("onBeforeCall")
-      return call
+      def callback(result):
+          uri, args = result
+          call = Call(self.proto, callid, uri, args)
+          call.track("onBeforeCall")
+          return call
+
+      return d.addCallback(callback)
 
 
    def _callProcedure(self, call):
